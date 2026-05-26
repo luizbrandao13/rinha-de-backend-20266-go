@@ -23,7 +23,11 @@ func distSqRow(points []float32, dim int, i, j uint32) float64 {
 }
 
 func distRow(points []float32, dim int, i, j uint32) float64 {
-	return math.Sqrt(distSqRow(points, dim, i, j))
+	s := distSqRow(points, dim, i, j)
+	if s < 0 {
+		s = 0
+	}
+	return math.Sqrt(s)
 }
 
 // --- keep k=5 smallest squared distances ---
