@@ -60,6 +60,13 @@ Constantes usadas no cálculo (espelho de `test/test.js` / [docs/br/AVALIACAO.md
 
 Objetivo prático alinhado ao topo do ranking: **p99 o mais baixo possível** (idealmente na ordem de **1 ms** ou menos, sujeito ao hardware do teste oficial) mantendo **FP/FN/erros HTTP** baixos para não disparar o corte de 15% nem a penalidade de detecção.
 
+## Otimização para subir no ranking
+
+1. **Dados corretos** — O `final_score` depende de **detecção** (kNN exato + vetor idêntico ao da prova). Garante que o `references.json.gz` usado no build é o **mesmo** que o `test-data.json` espera (checksum); senão a taxa de falha dispara e o score de detecção vai a **−3000**.
+2. **Resposta HTTP** — O `cmd/api` usa **JSON pré-serializado** por número de fraudes nos 5 vizinhos (`internal/fraud/canned.go`), evitando `json.Encoder` por pedido.
+3. **Índice e CPU** — Manter `tree.bin` no build; tunar VP-tree / distâncias (SIMD, folhas); duas réplicas atrás do Nginx (já no `docker-compose.yml`).
+4. **Medir como na prova** — `k6 run test/test.js` com os mesmos limites de CPU/memória que vais submeter; o p99 com um único processo local não substitui o teste oficial.
+
 ## Nota sobre o dataset de testes
 
 O ficheiro `test/test-data.json` inclui um `references_checksum_sha256` que pode não coincidir com o `resources/references.json.gz` deste clone. A lógica segue sempre o dataset de referência presente em `resources/`.

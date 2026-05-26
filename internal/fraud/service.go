@@ -29,15 +29,15 @@ type Engine struct {
 	tree  *vpNode
 }
 
-// Evaluate runs vectorization + kNN and returns approval + fraud_score.
-func (e *Engine) Evaluate(req *Request, norm Norm, mcc map[string]float64) (approved bool, fraudScore float64, err error) {
+// Evaluate runs vectorization + kNN and returns approval, fraud_score, and fraud neighbor count in {0..5}.
+func (e *Engine) Evaluate(req *Request, norm Norm, mcc map[string]float64) (approved bool, fraudScore float64, fraudNeighbors int, err error) {
 	var q [14]float64
 	vec := q[:]
 	if err := Vectorize(req, norm, mcc, vec); err != nil {
-		return false, 0, err
+		return false, 0, 0, err
 	}
 	neighbors := e.tree.SearchK(vec, e.store.points, e.store.dim)
 	fc := NeighborFraudCount(e.store.labels, neighbors)
 	fs := FraudScoreFromNeighbors(fc)
-	return Approved(fs), fs, nil
+	return Approved(fs), fs, fc, nil
 }

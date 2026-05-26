@@ -10,11 +10,6 @@ import (
 	"github.com/luizbrandao13/rinha-de-backend-20266-go/internal/fraud"
 )
 
-type fraudResp struct {
-	Approved   bool    `json:"approved"`
-	FraudScore float64 `json:"fraud_score"`
-}
-
 func main() {
 	refPath := getenv("REFS_PATH", "/data/refs.bin")
 	treePath := getenv("TREE_PATH", "/data/tree.bin")
@@ -60,13 +55,17 @@ func main() {
 			http.Error(w, "bad json", http.StatusBadRequest)
 			return
 		}
-		ok, score, err := eng.Evaluate(&req, norm, mcc)
+		_, _, frauds, err := eng.Evaluate(&req, norm, mcc)
 		if err != nil {
 			http.Error(w, "unprocessable", http.StatusUnprocessableEntity)
 			return
 		}
+		if frauds < 0 || frauds > 5 {
+			http.Error(w, "internal", http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(fraudResp{Approved: ok, FraudScore: score})
+		_, _ = w.Write(fraud.CannedFraudScoreJSON[frauds])
 	})
 
 	srv := &http.Server{
