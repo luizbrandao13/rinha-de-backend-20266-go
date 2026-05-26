@@ -1,0 +1,9 @@
+.git
+.github
+participants
+test
+docs
+misc
+*.md
+!go.mod
+!go.sum
