@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"syscall"
 	"unsafe"
 )
 
@@ -13,32 +14,48 @@ const storeMagicV2 = "RNF2"
 
 // Store holds loaded reference vectors and labels (refs.bin).
 type Store struct {
-	raw    []byte
-	n      int
-	dim    int
-	points []float64 // len n*dim
-	labels []byte    // len n
+	data      []byte // mmap backing store
+	n         int
+	dim       int
+	pointsF32 []float32
+	pointsF64 []float64 // RNF2 only, or lazy materialization
+	labels    []byte
 }
 
 func (s *Store) N() int   { return s.n }
 func (s *Store) Dim() int { return s.dim }
 
-// Points returns the row-major float64 matrix (length n*dim).
-func (s *Store) Points() []float64 { return s.points }
+// PointsF32 returns the row-major float32 matrix (RNF1 mmap view).
+func (s *Store) PointsF32() []float32 { return s.pointsF32 }
 
-// LoadStore reads RNF2 (float64) or legacy RNF1 (float32 promoted to float64).
+// Points returns float64 rows for index build/tests (not used on hot API path).
+func (s *Store) Points() []float64 {
+	if s.pointsF64 != nil {
+		return s.pointsF64
+	}
+	if len(s.pointsF32) == 0 {
+		return nil
+	}
+	out := make([]float64, len(s.pointsF32))
+	for i, v := range s.pointsF32 {
+		out[i] = float64(v)
+	}
+	return out
+}
+
+// LoadStore memory-maps refs.bin (RNF1 float32 or RNF2 float64).
 func LoadStore(path string) (*Store, error) {
-	raw, err := os.ReadFile(path)
+	data, err := mmapRead(path)
 	if err != nil {
 		return nil, err
 	}
-	if len(raw) < 16 {
+	if len(data) < 16 {
 		return nil, errors.New("refs file too small")
 	}
-	magic := string(raw[0:4])
-	ver := binary.LittleEndian.Uint32(raw[4:8])
-	n := int(binary.LittleEndian.Uint32(raw[8:12]))
-	dim := int(binary.LittleEndian.Uint32(raw[12:16]))
+	magic := string(data[0:4])
+	ver := binary.LittleEndian.Uint32(data[4:8])
+	n := int(binary.LittleEndian.Uint32(data[8:12]))
+	dim := int(binary.LittleEndian.Uint32(data[12:16]))
 	if n <= 0 || dim != 14 {
 		return nil, fmt.Errorf("invalid header n=%d dim=%d", n, dim)
 	}
@@ -50,12 +67,17 @@ func LoadStore(path string) (*Store, error) {
 		vecBytes := n * dim * 8
 		offVec := 16
 		offLab := offVec + vecBytes
-		if len(raw) < offLab+n {
+		if len(data) < offLab+n {
 			return nil, fmt.Errorf("truncated file: need %d bytes", offLab+n)
 		}
-		points := bytesToFloat64Slice(raw[offVec:offLab])
-		labels := raw[offLab : offLab+n]
-		return &Store{raw: raw, n: n, dim: dim, points: points, labels: labels}, nil
+		pointsF64 := bytesToFloat64Slice(data[offVec:offLab])
+		return &Store{
+			data:      data,
+			n:         n,
+			dim:       dim,
+			pointsF64: pointsF64,
+			labels:    data[offLab : offLab+n],
+		}, nil
 	case storeMagicV1:
 		if ver != 1 {
 			return nil, fmt.Errorf("unsupported RNF1 version %d", ver)
@@ -63,19 +85,44 @@ func LoadStore(path string) (*Store, error) {
 		vecBytes := n * dim * 4
 		offVec := 16
 		offLab := offVec + vecBytes
-		if len(raw) < offLab+n {
+		if len(data) < offLab+n {
 			return nil, fmt.Errorf("truncated file: need %d bytes", offLab+n)
 		}
-		f32 := bytesToFloat32Slice(raw[offVec:offLab])
-		points := make([]float64, len(f32))
-		for i, v := range f32 {
-			points[i] = float64(v)
-		}
-		labels := raw[offLab : offLab+n]
-		return &Store{raw: raw, n: n, dim: dim, points: points, labels: labels}, nil
+		pointsF32 := bytesToFloat32Slice(data[offVec:offLab])
+		return &Store{
+			data:      data,
+			n:         n,
+			dim:       dim,
+			pointsF32: pointsF32,
+			labels:    data[offLab : offLab+n],
+		}, nil
 	default:
 		return nil, fmt.Errorf("bad magic %q", magic)
 	}
+}
+
+func mmapRead(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	size := fi.Size()
+	if size <= 0 {
+		return nil, errors.New("empty refs file")
+	}
+	if size > 1<<31-1 {
+		return nil, fmt.Errorf("refs file too large: %d", size)
+	}
+	data, err := syscall.Mmap(int(f.Fd()), 0, int(size), syscall.PROT_READ, syscall.MAP_PRIVATE)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 func bytesToFloat32Slice(b []byte) []float32 {

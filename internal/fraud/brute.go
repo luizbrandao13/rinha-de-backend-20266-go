@@ -8,10 +8,8 @@ func (e *Engine) BruteEvaluate(req *Request) (approved bool, fraudScore float64,
 	}
 	var h neighborHeap
 	n := e.store.N()
-	dim := e.store.Dim()
-	points := e.store.Points()
 	for idx := 0; idx < n; idx++ {
-		d2 := distSq14(&q, points, dim, idx)
+		d2 := distSq14Store(&q, e.store, idx)
 		h.push(d2, int32(idx))
 	}
 	neighbors := h.snapshot()

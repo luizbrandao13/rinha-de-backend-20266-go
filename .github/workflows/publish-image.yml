@@ -1,0 +1,40 @@
+name: Publish API image
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ghcr.io/luizbrandao13/rinha-de-backend-20266-go:latest
+            ghcr.io/luizbrandao13/rinha-de-backend-20266-go:${{ github.sha }}
+
+      - name: Make package public
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --method PATCH \
+            /users/luizbrandao13/packages/container/rinha-de-backend-20266-go \
+            -f visibility=public \
+            2>/dev/null || true

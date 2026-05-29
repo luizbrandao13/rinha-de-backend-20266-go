@@ -51,7 +51,12 @@ func (e *Engine) Evaluate(req *Request) (approved bool, fraudScore float64, frau
 	if err := VectorizeQuery(req, e.norm, e.mcc, &q); err != nil {
 		return false, 0, 0, err
 	}
-	neighbors := SearchForestK(e.trees, &q, e.store.points, e.store.dim)
+	var neighbors [5]int32
+	if len(e.store.pointsF32) > 0 {
+		neighbors = SearchForestKF32(e.trees, &q, e.store.pointsF32, e.store.dim)
+	} else {
+		neighbors = SearchForestK(e.trees, &q, e.store.pointsF64, e.store.dim)
+	}
 	fc := NeighborFraudCount(e.store.labels, neighbors)
 	fs := FraudScoreFromNeighbors(fc)
 	return Approved(fs), fs, fc, nil

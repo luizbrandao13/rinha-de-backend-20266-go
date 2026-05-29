@@ -178,6 +178,23 @@ func partitionByMu(tmp []float64, ids []uint32, mu float64) int {
 	return a
 }
 
+// SearchForestKF32 runs exact k=5 over float32 reference vectors (mmap hot path).
+func SearchForestKF32(forest [4]*vpNode, q *[14]float64, points []float32, dim int) [5]int32 {
+	var h neighborHeap
+	seen := make(map[*vpNode]struct{}, 4)
+	for _, root := range forest {
+		if root == nil {
+			continue
+		}
+		if _, ok := seen[root]; ok {
+			continue
+		}
+		seen[root] = struct{}{}
+		root.searchRecF32(q, points, dim, &h)
+	}
+	return h.snapshot()
+}
+
 // SearchForestK runs exact k=5 over the union of all trees (merge top distances).
 func SearchForestK(forest [4]*vpNode, q *[14]float64, points []float64, dim int) [5]int32 {
 	var h neighborHeap
@@ -237,6 +254,42 @@ func (n *vpNode) searchRec(q *[14]float64, points []float64, dim int, h *neighbo
 		tau = math.Sqrt(h.worst())
 		if tau > d0-n.mu {
 			n.left.searchRec(q, points, dim, h)
+		}
+	}
+}
+
+func (n *vpNode) searchRecF32(q *[14]float64, points []float32, dim int, h *neighborHeap) {
+	if n == nil {
+		return
+	}
+	if n.leaf != nil {
+		for _, idx := range n.leaf {
+			d2 := distSq14F32(q, points, dim, int(idx))
+			h.push(d2, int32(idx))
+		}
+		return
+	}
+
+	d0 := math.Sqrt(distSq14F32(q, points, dim, int(n.vantage)))
+	d0sq := d0 * d0
+	h.push(d0sq, int32(n.vantage))
+
+	tau := math.Sqrt(h.worst())
+	if math.IsInf(tau, +1) {
+		tau = math.MaxFloat64
+	}
+
+	if d0 < n.mu {
+		n.left.searchRecF32(q, points, dim, h)
+		tau = math.Sqrt(h.worst())
+		if tau > n.mu-d0 {
+			n.right.searchRecF32(q, points, dim, h)
+		}
+	} else {
+		n.right.searchRecF32(q, points, dim, h)
+		tau = math.Sqrt(h.worst())
+		if tau > d0-n.mu {
+			n.left.searchRecF32(q, points, dim, h)
 		}
 	}
 }
