@@ -35,21 +35,22 @@ func TestVectorizeGoldenLegit(t *testing.T) {
 	req.Terminal.KmFromHome = 29.23
 	req.LastTransaction = nil
 
-	want := [14]float32{0.0041, 0.1667, 0.05, 0.7826, 0.3333, -1, -1, 0.0292, 0.15, 0, 1, 0, 0.15, 0.006}
-	var got [14]float32
-	if err := VectorizeF32(req, nf, mcc, &got); err != nil {
+	want := [14]float64{0.0041, 0.1667, 0.05, 0.7826, 0.3333, -1, -1, 0.0292, 0.15, 0, 1, 0, 0.15, 0.006}
+	var got [14]float64
+	if err := VectorizeQuery(req, nf, mcc, &got); err != nil {
 		t.Fatal(err)
 	}
 	for i := range want {
-		if absf(got[i]-want[i]) > 0.002 {
+		if absDiff(got[i], want[i]) > 0.002 {
 			t.Fatalf("dim %d: got %v want %v", i, got[i], want[i])
 		}
 	}
 }
 
-func absf(x float32) float32 {
-	if x < 0 {
-		return -x
+func absDiff(a, b float64) float64 {
+	d := a - b
+	if d < 0 {
+		return -d
 	}
-	return x
+	return d
 }

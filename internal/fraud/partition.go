@@ -24,7 +24,7 @@ func partitionFromRequest(r *Request) int {
 	return partitionTag(unknown, r.LastTransaction != nil)
 }
 
-func partitionFromVector(points []float32, dim, row int) int {
+func partitionFromVector(points []float64, dim, row int) int {
 	base := row * dim
 	unknown := points[base+11] >= 0.5
 	hasLast := points[base+5] != -1

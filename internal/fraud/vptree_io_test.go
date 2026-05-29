@@ -7,9 +7,9 @@ import (
 func TestVPTreeRoundtripIO(t *testing.T) {
 	dim := 14
 	n := 500
-	points := make([]float32, n*dim)
+	points := make([]float64, n*dim)
 	for i := range points {
-		points[i] = float32(i%17) / 17
+		points[i] = float64(i%17) / 17
 	}
 	root := BuildVPTree(points, n, dim, 32)
 	path := t.TempDir() + "/tree.bin"
@@ -20,10 +20,10 @@ func TestVPTreeRoundtripIO(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var q [14]float32
+	var q [14]float64
 	for trial := 0; trial < 20; trial++ {
 		for i := range q {
-			q[i] = float32(trial*i%13) / 13
+			q[i] = float64(trial*i%13) / 13
 		}
 		a := root.SearchK(&q, points, dim)
 		b := got.SearchK(&q, points, dim)
@@ -36,9 +36,9 @@ func TestVPTreeRoundtripIO(t *testing.T) {
 func TestForestRoundtripIO(t *testing.T) {
 	dim := 14
 	n := 800
-	points := make([]float32, n*dim)
+	points := make([]float64, n*dim)
 	for i := range points {
-		points[i] = float32(i%23) / 23
+		points[i] = float64(i%23) / 23
 		if i%dim == 5 && i/dim%3 == 0 {
 			points[i] = -1
 		}
@@ -52,7 +52,7 @@ func TestForestRoundtripIO(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var q [14]float32
+	var q [14]float64
 	for i := range q {
 		q[i] = 0.42
 	}

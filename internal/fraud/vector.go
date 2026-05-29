@@ -32,15 +32,15 @@ type Request struct {
 	} `json:"last_transaction"`
 }
 
-// VectorizeF32 builds the 14-dimensional vector as float32 (search hot path).
-func VectorizeF32(r *Request, n NormFast, mcc *MCCTable, out *[14]float32) error {
+// VectorizeQuery builds the query vector as float64 (matches data-generator knn).
+func VectorizeQuery(r *Request, n NormFast, mcc *MCCTable, out *[14]float64) error {
 	t, err := time.Parse(time.RFC3339, r.Transaction.RequestedAt)
 	if err != nil {
 		return err
 	}
 	t = t.UTC()
 
-	hour := float32(t.Hour()) / 23.0
+	hour := float64(t.Hour()) / 23.0
 
 	wd := int(t.Weekday())
 	var dow int
@@ -49,7 +49,7 @@ func VectorizeF32(r *Request, n NormFast, mcc *MCCTable, out *[14]float32) error
 	} else {
 		dow = wd - 1
 	}
-	day := float32(dow) / 6.0
+	day := float64(dow) / 6.0
 
 	avg := r.Customer.AvgAmount
 	if avg <= 0 {
@@ -57,7 +57,7 @@ func VectorizeF32(r *Request, n NormFast, mcc *MCCTable, out *[14]float32) error
 	}
 	amountVsAvg := (r.Transaction.Amount / avg) * n.InvAmountVsAvgRatio
 
-	var minSince, kmLast float32
+	var minSince, kmLast float64
 	if r.LastTransaction == nil {
 		minSince = -1
 		kmLast = -1
@@ -71,11 +71,11 @@ func VectorizeF32(r *Request, n NormFast, mcc *MCCTable, out *[14]float32) error
 		if minutes < 0 {
 			minutes = 0
 		}
-		minSince = clamp01f32(float32(minutes) * float32(n.InvMaxMinutes))
-		kmLast = clamp01f32(float32(r.LastTransaction.KmFromCurrent) * float32(n.InvMaxKm))
+		minSince = clamp01(minutes * n.InvMaxMinutes)
+		kmLast = clamp01(r.LastTransaction.KmFromCurrent * n.InvMaxKm)
 	}
 
-	unknown := float32(1)
+	unknown := 1.0
 	for _, m := range r.Customer.KnownMerchants {
 		if m == r.Merchant.ID {
 			unknown = 0
@@ -83,29 +83,33 @@ func VectorizeF32(r *Request, n NormFast, mcc *MCCTable, out *[14]float32) error
 		}
 	}
 
-	online := float32(0)
+	online := 0.0
 	if r.Terminal.IsOnline {
 		online = 1
 	}
-	card := float32(0)
+	card := 0.0
 	if r.Terminal.CardPresent {
 		card = 1
 	}
 
-	out[0] = clamp01f32(float32(r.Transaction.Amount) * float32(n.InvMaxAmount))
-	out[1] = clamp01f32(float32(r.Transaction.Installments) * float32(n.InvMaxInstallments))
-	out[2] = clamp01f32(float32(amountVsAvg))
+	out[0] = clamp01(r.Transaction.Amount * n.InvMaxAmount)
+	out[1] = clamp01(float64(r.Transaction.Installments) * n.InvMaxInstallments)
+	out[2] = clamp01(amountVsAvg)
 	out[3] = hour
 	out[4] = day
 	out[5] = minSince
 	out[6] = kmLast
-	out[7] = clamp01f32(float32(r.Terminal.KmFromHome) * float32(n.InvMaxKm))
-	out[8] = clamp01f32(float32(r.Customer.TxCount24h) * float32(n.InvMaxTxCount24h))
+	out[7] = clamp01(r.Terminal.KmFromHome * n.InvMaxKm)
+	out[8] = clamp01(float64(r.Customer.TxCount24h) * n.InvMaxTxCount24h)
 	out[9] = online
 	out[10] = card
 	out[11] = unknown
 	out[12] = mcc.Risk(r.Merchant.MCC)
-	out[13] = clamp01f32(float32(r.Merchant.AvgAmount) * float32(n.InvMaxMerchantAvgAmount))
+	out[13] = clamp01(r.Merchant.AvgAmount * n.InvMaxMerchantAvgAmount)
+
+	for i := range out {
+		out[i] = Round4(out[i])
+	}
 	return nil
 }
 
@@ -226,14 +230,4 @@ func NeighborFraudCount(labels []byte, neighbors [5]int32) int {
 		}
 	}
 	return c
-}
-
-func clamp01f32(x float32) float32 {
-	if x < 0 {
-		return 0
-	}
-	if x > 1 {
-		return 1
-	}
-	return x
 }

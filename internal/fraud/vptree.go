@@ -68,7 +68,7 @@ type vpNode struct {
 const defaultLeafCap = 128
 
 // BuildPartitionedForest builds four VP-trees keyed by partitionTag (unknown_merchant, has_last_tx).
-func BuildPartitionedForest(points []float32, n, dim, leafCap int) [4]*vpNode {
+func BuildPartitionedForest(points []float64, n, dim, leafCap int) [4]*vpNode {
 	if leafCap <= 0 {
 		leafCap = defaultLeafCap
 	}
@@ -87,7 +87,7 @@ func BuildPartitionedForest(points []float32, n, dim, leafCap int) [4]*vpNode {
 	return forest
 }
 
-func buildIndexList(indices []uint32, points []float32, dim, leafCap int) *vpNode {
+func buildIndexList(indices []uint32, points []float64, dim, leafCap int) *vpNode {
 	cp := append([]uint32(nil), indices...)
 	rng := rand.New(rand.NewSource(42))
 	rng.Shuffle(len(cp), func(i, j int) { cp[i], cp[j] = cp[j], cp[i] })
@@ -97,7 +97,7 @@ func buildIndexList(indices []uint32, points []float32, dim, leafCap int) *vpNod
 }
 
 // BuildVPTree builds a single VP-tree over all rows (legacy / tests).
-func BuildVPTree(points []float32, n, dim, leafCap int) *vpNode {
+func BuildVPTree(points []float64, n, dim, leafCap int) *vpNode {
 	if leafCap <= 0 {
 		leafCap = defaultLeafCap
 	}
@@ -114,7 +114,7 @@ func BuildVPTree(points []float32, n, dim, leafCap int) *vpNode {
 	return buildRecRange(indices, 0, n, points, dim, leafCap, tmp, aux, rng)
 }
 
-func buildRecRange(buf []uint32, lo, hi int, points []float32, dim, leafCap int, tmp, aux []float64, rng *rand.Rand) *vpNode {
+func buildRecRange(buf []uint32, lo, hi int, points []float64, dim, leafCap int, tmp, aux []float64, rng *rand.Rand) *vpNode {
 	m := hi - lo
 	if m <= leafCap {
 		cp := make([]uint32, m)
@@ -178,8 +178,25 @@ func partitionByMu(tmp []float64, ids []uint32, mu float64) int {
 	return a
 }
 
-// SearchK returns indices of k=5 nearest neighbors (squared Euclidean distance).
-func (root *vpNode) SearchK(q *[14]float32, points []float32, dim int) [5]int32 {
+// SearchForestK runs exact k=5 over the union of all trees (merge top distances).
+func SearchForestK(forest [4]*vpNode, q *[14]float64, points []float64, dim int) [5]int32 {
+	var h neighborHeap
+	seen := make(map[*vpNode]struct{}, 4)
+	for _, root := range forest {
+		if root == nil {
+			continue
+		}
+		if _, ok := seen[root]; ok {
+			continue
+		}
+		seen[root] = struct{}{}
+		root.searchRec(q, points, dim, &h)
+	}
+	return h.snapshot()
+}
+
+// SearchK returns indices of k=5 nearest neighbors within this tree only.
+func (root *vpNode) SearchK(q *[14]float64, points []float64, dim int) [5]int32 {
 	if root == nil {
 		return [5]int32{-1, -1, -1, -1, -1}
 	}
@@ -188,7 +205,7 @@ func (root *vpNode) SearchK(q *[14]float32, points []float32, dim int) [5]int32 
 	return h.snapshot()
 }
 
-func (n *vpNode) searchRec(q *[14]float32, points []float32, dim int, h *neighborHeap) {
+func (n *vpNode) searchRec(q *[14]float64, points []float64, dim int, h *neighborHeap) {
 	if n == nil {
 		return
 	}

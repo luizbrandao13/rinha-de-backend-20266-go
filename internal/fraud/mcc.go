@@ -5,12 +5,12 @@ import (
 	"os"
 )
 
-const defaultMCCRiskF32 = float32(0.5)
+const defaultMCCRisk = 0.5
 
 // MCCTable is a read-only MCC risk lookup (hot path friendly).
 type MCCTable struct {
-	byCode      map[string]float32
-	defaultRisk float32
+	byCode      map[string]float64
+	defaultRisk float64
 }
 
 func LoadMCCTable(path string) (*MCCTable, error) {
@@ -23,18 +23,18 @@ func LoadMCCTable(path string) (*MCCTable, error) {
 		return nil, err
 	}
 	t := &MCCTable{
-		byCode:      make(map[string]float32, len(raw)),
-		defaultRisk: defaultMCCRiskF32,
+		byCode:      make(map[string]float64, len(raw)),
+		defaultRisk: defaultMCCRisk,
 	}
 	for k, v := range raw {
-		t.byCode[k] = float32(v)
+		t.byCode[k] = v
 	}
 	return t, nil
 }
 
-func (t *MCCTable) Risk(mcc string) float32 {
+func (t *MCCTable) Risk(mcc string) float64 {
 	if t == nil {
-		return defaultMCCRiskF32
+		return defaultMCCRisk
 	}
 	if v, ok := t.byCode[mcc]; ok {
 		return v

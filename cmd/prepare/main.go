@@ -94,6 +94,7 @@ func convert(inPath, outPath string) error {
 	}
 
 	bufF := make([]byte, 14*4)
+	labels := make([]byte, 0, 1<<20)
 	var n uint32
 	for dec.More() {
 		var rec refRec
@@ -104,7 +105,8 @@ func convert(inPath, outPath string) error {
 			return fmt.Errorf("vector len %d at row %d", len(rec.Vector), n)
 		}
 		for i, v := range rec.Vector {
-			binary.LittleEndian.PutUint32(bufF[i*4:(i+1)*4], math.Float32bits(float32(v)))
+			fv := float32(fraud.Round4(v))
+			binary.LittleEndian.PutUint32(bufF[i*4:(i+1)*4], math.Float32bits(fv))
 		}
 		if _, err := out.Write(bufF); err != nil {
 			return err
@@ -118,13 +120,16 @@ func convert(inPath, outPath string) error {
 		default:
 			return fmt.Errorf("unknown label %q at %d", rec.Label, n)
 		}
-		if _, err := out.Write([]byte{lb}); err != nil {
-			return err
-		}
+		labels = append(labels, lb)
 		n++
 		if n%250_000 == 0 {
 			fmt.Fprintf(os.Stderr, "converted %d rows\n", n)
 		}
+	}
+	if _, err := out.Write(labels); err != nil {
+		_ = out.Close()
+		_ = os.Remove(tmpPath)
+		return err
 	}
 	if tok, err = dec.Token(); err != nil {
 		return err

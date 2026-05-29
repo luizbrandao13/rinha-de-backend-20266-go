@@ -5,7 +5,7 @@ Implementação da API exigida pelo desafio: `GET /ready`, `POST /fraud-score`, 
 ## Componentes
 
 - **`cmd/api`**: servidor HTTP (JSON, corpo limitado a 256 KiB).
-- **`cmd/prepare`**: converte `references.json.gz` para `refs.bin` e gera `tree.bin` (VP-tree serializado).
+- **`cmd/prepare`**: converte `references.json.gz` para `refs.bin` (**RNF1**, float32 + labels no fim do ficheiro) e gera `tree.bin` (floresta VP **VPT2**).
 - **`internal/fraud`**: normalização, VP-tree, carregamento dos dados.
 
 ## Desenvolvimento local
@@ -62,11 +62,17 @@ Objetivo prático alinhado ao topo do ranking: **p99 o mais baixo possível** (i
 
 ## Otimização para subir no ranking
 
-1. **Dados corretos** — O `final_score` depende de **detecção** (kNN exato + vetor idêntico ao da prova). Garante que o `references.json.gz` usado no build é o **mesmo** que o `test-data.json` espera (checksum); senão a taxa de falha dispara e o score de detecção vai a **−3000**.
+1. **Dados corretos** — `refs.bin` com **vetores contíguos e labels no fim** (bug antigo: label intercalado por linha desalinhava o mmap). Vetor de query em **float64** com `Round4` como o `data-generator` C. Valida com `RUN_TESTDATA_SAMPLE=1 go test ./internal/fraud -run TestDetectionAgainstTestDataSample`.
 2. **Resposta HTTP** — **fasthttp** + JSON pré-serializado (`internal/fraud/canned.go`, 6 buckets 0…5 fraudes).
 3. **Índice** — `tree.bin` formato **VPT2**: 4 VP-trees particionadas por `(merchant desconhecido, tem last_transaction)`; distância 14D desenrolada; folhas 128; gerado no build via `cmd/prepare`.
 4. **Medir como na prova** — `docker compose up --build` + `k6 run test/test.js` (2 réplicas + Nginx).
 
 ## Nota sobre o dataset de testes
 
-O ficheiro `test/test-data.json` inclui um `references_checksum_sha256` que pode não coincidir com o `resources/references.json.gz` deste clone. A lógica segue sempre o dataset de referência presente em `resources/`.
+O campo `references_checksum_sha256` em `test/test-data.json` é o **SHA256 do JSON descomprimido** (`gzip -dc resources/references.json.gz`), **não** do ficheiro `.gz`. O teste `TestReferencesChecksumMatchesTestData` valida isso.
+
+Para regenerar `test/test-data.json` alinhado às referências actuais:
+
+```bash
+./generate-data.sh
+```

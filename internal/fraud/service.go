@@ -45,15 +45,13 @@ func NewEngine(refPath, treePath, normPath, mccPath string) (*Engine, error) {
 	}, nil
 }
 
-// Evaluate runs vectorization + partitioned kNN.
+// Evaluate runs vectorization + exact kNN (k=5) over all reference partitions.
 func (e *Engine) Evaluate(req *Request) (approved bool, fraudScore float64, fraudNeighbors int, err error) {
-	var q [14]float32
-	if err := VectorizeF32(req, e.norm, e.mcc, &q); err != nil {
+	var q [14]float64
+	if err := VectorizeQuery(req, e.norm, e.mcc, &q); err != nil {
 		return false, 0, 0, err
 	}
-	part := partitionFromRequest(req)
-	tree := e.trees[part]
-	neighbors := tree.SearchK(&q, e.store.points, e.store.dim)
+	neighbors := SearchForestK(e.trees, &q, e.store.points, e.store.dim)
 	fc := NeighborFraudCount(e.store.labels, neighbors)
 	fs := FraudScoreFromNeighbors(fc)
 	return Approved(fs), fs, fc, nil

@@ -12,10 +12,10 @@ func TestVPHugeBuildTime(t *testing.T) {
 	}
 	n := 3_000_000
 	dim := 14
-	points := make([]float32, n*dim)
+	points := make([]float64, n*dim)
 	for i := 0; i < n; i++ {
 		for j := 0; j < dim; j++ {
-			points[i*dim+j] = float32((i+j)%997) / 997
+			points[i*dim+j] = float64((i+j)%997) / 997
 		}
 	}
 	t0 := time.Now()
