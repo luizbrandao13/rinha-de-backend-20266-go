@@ -1,0 +1,16 @@
+{
+  "participants": [
+    "Luiz Brandão"
+  ],
+  "social": [
+    "https://github.com/luizbrandao13"
+  ],
+  "source-code-repo": "https://github.com/luizbrandao13/rinha-de-backend-20266-go",
+  "stack": [
+    "go",
+    "nginx",
+    "fasthttp",
+    "vp-tree"
+  ],
+  "open_to_work": false
+}
