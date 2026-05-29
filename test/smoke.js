@@ -51,13 +51,13 @@ export default function smokeTest() {
     check(res, {
         'status is 200': (r) => r.status === 200,
         'body is json': (r) => {
-            try { JSON.parse(r.body); return true; } catch { return false; }
+            try { JSON.parse(r.body); return true; } catch (e) { return false; }
         },
         'approved is boolean': (r) => {
-            try { return typeof JSON.parse(r.body).approved === 'boolean'; } catch { return false; }
+            try { return typeof JSON.parse(r.body).approved === 'boolean'; } catch (e) { return false; }
         },
         'fraud_score is number': (r) => {
-            try { return typeof JSON.parse(r.body).fraud_score === 'number'; } catch { return false; }
+            try { return typeof JSON.parse(r.body).fraud_score === 'number'; } catch (e) { return false; }
         },
     });
 }

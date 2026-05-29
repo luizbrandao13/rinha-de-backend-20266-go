@@ -3,14 +3,17 @@ package main
 import (
 	"encoding/json"
 	"log"
-	"net/http"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/luizbrandao13/rinha-de-backend-20266-go/internal/fraud"
+	"github.com/valyala/fasthttp"
 )
 
 func main() {
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
 	refPath := getenv("REFS_PATH", "/data/refs.bin")
 	treePath := getenv("TREE_PATH", "/data/tree.bin")
 	normPath := getenv("NORM_PATH", "/data/normalization.json")
@@ -19,65 +22,60 @@ func main() {
 
 	log.Printf("loading references from %s (tree %s)", refPath, treePath)
 	t0 := time.Now()
-	eng, err := fraud.NewEngine(refPath, treePath)
+	eng, err := fraud.NewEngine(refPath, treePath, normPath, mccPath)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Printf("index ready in %s", time.Since(t0))
 
-	norm, err := fraud.LoadNorm(normPath)
-	if err != nil {
-		log.Fatal(err)
-	}
-	mcc, err := fraud.LoadMCCRisk(mccPath)
-	if err != nil {
-		log.Fatal(err)
+	srv := &fasthttp.Server{
+		Handler:            makeHandler(eng),
+		ReadBufferSize:     4096,
+		WriteBufferSize:    256,
+		MaxRequestBodySize: 256 << 10,
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
-
-	mux.HandleFunc("/fraud-score", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		r.Body = http.MaxBytesReader(w, r.Body, 256<<10)
-		var req fraud.Request
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "bad json", http.StatusBadRequest)
-			return
-		}
-		_, _, frauds, err := eng.Evaluate(&req, norm, mcc)
-		if err != nil {
-			http.Error(w, "unprocessable", http.StatusUnprocessableEntity)
-			return
-		}
-		if frauds < 0 || frauds > 5 {
-			http.Error(w, "internal", http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(fraud.CannedFraudScoreJSON[frauds])
-	})
-
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
 	log.Printf("listening on %s", addr)
-	log.Fatal(srv.ListenAndServe())
+	log.Fatal(srv.ListenAndServe(addr))
+}
+
+func makeHandler(eng *fraud.Engine) fasthttp.RequestHandler {
+	return func(ctx *fasthttp.RequestCtx) {
+		switch string(ctx.Path()) {
+		case "/ready":
+			if !ctx.IsGet() {
+				ctx.SetStatusCode(fasthttp.StatusMethodNotAllowed)
+				return
+			}
+			ctx.SetStatusCode(fasthttp.StatusOK)
+			ctx.SetBodyString("ok")
+		case "/fraud-score":
+			if !ctx.IsPost() {
+				ctx.SetStatusCode(fasthttp.StatusMethodNotAllowed)
+				return
+			}
+			var req fraud.Request
+			if err := json.Unmarshal(ctx.PostBody(), &req); err != nil {
+				ctx.SetStatusCode(fasthttp.StatusBadRequest)
+				ctx.SetBodyString("bad json")
+				return
+			}
+			_, _, frauds, err := eng.Evaluate(&req)
+			if err != nil {
+				ctx.SetStatusCode(fasthttp.StatusUnprocessableEntity)
+				ctx.SetBodyString("unprocessable")
+				return
+			}
+			if frauds < 0 || frauds > 5 {
+				ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+				return
+			}
+			ctx.SetContentType("application/json")
+			ctx.SetBody(fraud.CannedFraudScoreJSON[frauds])
+		default:
+			ctx.SetStatusCode(fasthttp.StatusNotFound)
+		}
+	}
 }
 
 func getenv(k, def string) string {

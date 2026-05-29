@@ -32,7 +32,84 @@ type Request struct {
 	} `json:"last_transaction"`
 }
 
-// Vectorize builds the 14-dimensional vector per REGRAS_DE_DETECCAO.md.
+// VectorizeF32 builds the 14-dimensional vector as float32 (search hot path).
+func VectorizeF32(r *Request, n NormFast, mcc *MCCTable, out *[14]float32) error {
+	t, err := time.Parse(time.RFC3339, r.Transaction.RequestedAt)
+	if err != nil {
+		return err
+	}
+	t = t.UTC()
+
+	hour := float32(t.Hour()) / 23.0
+
+	wd := int(t.Weekday())
+	var dow int
+	if wd == int(time.Sunday) {
+		dow = 6
+	} else {
+		dow = wd - 1
+	}
+	day := float32(dow) / 6.0
+
+	avg := r.Customer.AvgAmount
+	if avg <= 0 {
+		avg = 1e-9
+	}
+	amountVsAvg := (r.Transaction.Amount / avg) * n.InvAmountVsAvgRatio
+
+	var minSince, kmLast float32
+	if r.LastTransaction == nil {
+		minSince = -1
+		kmLast = -1
+	} else {
+		tLast, err := time.Parse(time.RFC3339, r.LastTransaction.Timestamp)
+		if err != nil {
+			return err
+		}
+		tLast = tLast.UTC()
+		minutes := t.Sub(tLast).Minutes()
+		if minutes < 0 {
+			minutes = 0
+		}
+		minSince = clamp01f32(float32(minutes) * float32(n.InvMaxMinutes))
+		kmLast = clamp01f32(float32(r.LastTransaction.KmFromCurrent) * float32(n.InvMaxKm))
+	}
+
+	unknown := float32(1)
+	for _, m := range r.Customer.KnownMerchants {
+		if m == r.Merchant.ID {
+			unknown = 0
+			break
+		}
+	}
+
+	online := float32(0)
+	if r.Terminal.IsOnline {
+		online = 1
+	}
+	card := float32(0)
+	if r.Terminal.CardPresent {
+		card = 1
+	}
+
+	out[0] = clamp01f32(float32(r.Transaction.Amount) * float32(n.InvMaxAmount))
+	out[1] = clamp01f32(float32(r.Transaction.Installments) * float32(n.InvMaxInstallments))
+	out[2] = clamp01f32(float32(amountVsAvg))
+	out[3] = hour
+	out[4] = day
+	out[5] = minSince
+	out[6] = kmLast
+	out[7] = clamp01f32(float32(r.Terminal.KmFromHome) * float32(n.InvMaxKm))
+	out[8] = clamp01f32(float32(r.Customer.TxCount24h) * float32(n.InvMaxTxCount24h))
+	out[9] = online
+	out[10] = card
+	out[11] = unknown
+	out[12] = mcc.Risk(r.Merchant.MCC)
+	out[13] = clamp01f32(float32(r.Merchant.AvgAmount) * float32(n.InvMaxMerchantAvgAmount))
+	return nil
+}
+
+// Vectorize builds the 14-dimensional vector per REGRAS_DE_DETECCAO.md (float64).
 func Vectorize(r *Request, n Norm, mcc map[string]float64, out []float64) error {
 	if len(out) != 14 {
 		panic("fraud: out must be length 14")
@@ -118,22 +195,13 @@ func Vectorize(r *Request, n Norm, mcc map[string]float64, out []float64) error 
 
 func mccRisk(m map[string]float64, mcc string) float64 {
 	if m == nil {
-		return defaultMCCRisk
+		return 0.5
 	}
 	v, ok := m[mcc]
 	if !ok {
-		return defaultMCCRisk
+		return 0.5
 	}
 	return v
-}
-
-func distanceSquared14to32(q []float64, p []float32) float64 {
-	var s float64
-	for i := 0; i < 14; i++ {
-		d := q[i] - float64(p[i])
-		s += d * d
-	}
-	return s
 }
 
 // FraudScoreFromNeighbors returns fraud_score = fraudCount / 5.
@@ -158,4 +226,14 @@ func NeighborFraudCount(labels []byte, neighbors [5]int32) int {
 		}
 	}
 	return c
+}
+
+func clamp01f32(x float32) float32 {
+	if x < 0 {
+		return 0
+	}
+	if x > 1 {
+		return 1
+	}
+	return x
 }

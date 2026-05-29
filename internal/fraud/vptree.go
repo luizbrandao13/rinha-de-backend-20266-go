@@ -6,30 +6,6 @@ import (
 	"sort"
 )
 
-func row(points []float32, dim int, i uint32) []float32 {
-	base := int(i) * dim
-	return points[base : base+dim]
-}
-
-func distSqRow(points []float32, dim int, i, j uint32) float64 {
-	bi := int(i) * dim
-	bj := int(j) * dim
-	var s float64
-	for k := 0; k < dim; k++ {
-		d := float64(points[bi+k]) - float64(points[bj+k])
-		s += d * d
-	}
-	return s
-}
-
-func distRow(points []float32, dim int, i, j uint32) float64 {
-	s := distSqRow(points, dim, i, j)
-	if s < 0 {
-		s = 0
-	}
-	return math.Sqrt(s)
-}
-
 // --- keep k=5 smallest squared distances ---
 
 type neighborHeap struct {
@@ -89,9 +65,38 @@ type vpNode struct {
 	leaf    []uint32
 }
 
-const defaultLeafCap = 64
+const defaultLeafCap = 128
 
-// BuildVPTree builds a VP-tree over row-major points (n rows, dim cols).
+// BuildPartitionedForest builds four VP-trees keyed by partitionTag (unknown_merchant, has_last_tx).
+func BuildPartitionedForest(points []float32, n, dim, leafCap int) [4]*vpNode {
+	if leafCap <= 0 {
+		leafCap = defaultLeafCap
+	}
+	var parts [4][]uint32
+	for i := 0; i < n; i++ {
+		p := partitionFromVector(points, dim, i)
+		parts[p] = append(parts[p], uint32(i))
+	}
+	var forest [4]*vpNode
+	for p := 0; p < 4; p++ {
+		if len(parts[p]) == 0 {
+			continue
+		}
+		forest[p] = buildIndexList(parts[p], points, dim, leafCap)
+	}
+	return forest
+}
+
+func buildIndexList(indices []uint32, points []float32, dim, leafCap int) *vpNode {
+	cp := append([]uint32(nil), indices...)
+	rng := rand.New(rand.NewSource(42))
+	rng.Shuffle(len(cp), func(i, j int) { cp[i], cp[j] = cp[j], cp[i] })
+	tmp := make([]float64, len(cp))
+	aux := make([]float64, len(cp))
+	return buildRecRange(cp, 0, len(cp), points, dim, leafCap, tmp, aux, rng)
+}
+
+// BuildVPTree builds a single VP-tree over all rows (legacy / tests).
 func BuildVPTree(points []float32, n, dim, leafCap int) *vpNode {
 	if leafCap <= 0 {
 		leafCap = defaultLeafCap
@@ -128,7 +133,7 @@ func buildRecRange(buf []uint32, lo, hi int, points []float32, dim, leafCap int,
 	restLen := m - 1
 	seg := buf[lo+1 : hi]
 	for i := 0; i < restLen; i++ {
-		d := distRow(points, dim, vantage, seg[i])
+		d := math.Sqrt(distSqRows(points, dim, int(vantage), int(seg[i])))
 		if math.IsNaN(d) || math.IsInf(d, 0) {
 			d = 1e12
 		}
@@ -174,25 +179,28 @@ func partitionByMu(tmp []float64, ids []uint32, mu float64) int {
 }
 
 // SearchK returns indices of k=5 nearest neighbors (squared Euclidean distance).
-func (root *vpNode) SearchK(q []float64, points []float32, dim int) [5]int32 {
+func (root *vpNode) SearchK(q *[14]float32, points []float32, dim int) [5]int32 {
+	if root == nil {
+		return [5]int32{-1, -1, -1, -1, -1}
+	}
 	var h neighborHeap
 	root.searchRec(q, points, dim, &h)
 	return h.snapshot()
 }
 
-func (n *vpNode) searchRec(q []float64, points []float32, dim int, h *neighborHeap) {
+func (n *vpNode) searchRec(q *[14]float32, points []float32, dim int, h *neighborHeap) {
 	if n == nil {
 		return
 	}
 	if n.leaf != nil {
 		for _, idx := range n.leaf {
-			d2 := distanceSquared14to32(q, row(points, dim, idx))
+			d2 := distSq14(q, points, dim, int(idx))
 			h.push(d2, int32(idx))
 		}
 		return
 	}
 
-	d0 := math.Sqrt(distanceSquared14to32(q, row(points, dim, n.vantage)))
+	d0 := math.Sqrt(distSq14(q, points, dim, int(n.vantage)))
 	d0sq := d0 * d0
 	h.push(d0sq, int32(n.vantage))
 

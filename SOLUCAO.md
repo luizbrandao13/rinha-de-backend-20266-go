@@ -63,9 +63,9 @@ Objetivo prático alinhado ao topo do ranking: **p99 o mais baixo possível** (i
 ## Otimização para subir no ranking
 
 1. **Dados corretos** — O `final_score` depende de **detecção** (kNN exato + vetor idêntico ao da prova). Garante que o `references.json.gz` usado no build é o **mesmo** que o `test-data.json` espera (checksum); senão a taxa de falha dispara e o score de detecção vai a **−3000**.
-2. **Resposta HTTP** — O `cmd/api` usa **JSON pré-serializado** por número de fraudes nos 5 vizinhos (`internal/fraud/canned.go`), evitando `json.Encoder` por pedido.
-3. **Índice e CPU** — Manter `tree.bin` no build; tunar VP-tree / distâncias (SIMD, folhas); duas réplicas atrás do Nginx (já no `docker-compose.yml`).
-4. **Medir como na prova** — `k6 run test/test.js` com os mesmos limites de CPU/memória que vais submeter; o p99 com um único processo local não substitui o teste oficial.
+2. **Resposta HTTP** — **fasthttp** + JSON pré-serializado (`internal/fraud/canned.go`, 6 buckets 0…5 fraudes).
+3. **Índice** — `tree.bin` formato **VPT2**: 4 VP-trees particionadas por `(merchant desconhecido, tem last_transaction)`; distância 14D desenrolada; folhas 128; gerado no build via `cmd/prepare`.
+4. **Medir como na prova** — `docker compose up --build` + `k6 run test/test.js` (2 réplicas + Nginx).
 
 ## Nota sobre o dataset de testes
 
