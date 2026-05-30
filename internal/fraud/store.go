@@ -11,19 +11,24 @@ import (
 
 const storeMagicV1 = "RNF1"
 const storeMagicV2 = "RNF2"
+const storeMagicV3 = "RNF3"
 
 // Store holds loaded reference vectors and labels (refs.bin).
 type Store struct {
 	data      []byte // mmap backing store
 	n         int
 	dim       int
+	pointsI16 []int16
 	pointsF32 []float32
-	pointsF64 []float64 // RNF2 only, or lazy materialization
+	pointsF64 []float64
 	labels    []byte
 }
 
 func (s *Store) N() int   { return s.n }
 func (s *Store) Dim() int { return s.dim }
+
+// PointsI16 returns the row-major int16 matrix (RNF3 mmap view).
+func (s *Store) PointsI16() []int16 { return s.pointsI16 }
 
 // PointsF32 returns the row-major float32 matrix (RNF1 mmap view).
 func (s *Store) PointsF32() []float32 { return s.pointsF32 }
@@ -33,14 +38,21 @@ func (s *Store) Points() []float64 {
 	if s.pointsF64 != nil {
 		return s.pointsF64
 	}
-	if len(s.pointsF32) == 0 {
-		return nil
+	if len(s.pointsI16) > 0 {
+		out := make([]float64, len(s.pointsI16))
+		for i, v := range s.pointsI16 {
+			out[i] = DequantDim(v)
+		}
+		return out
 	}
-	out := make([]float64, len(s.pointsF32))
-	for i, v := range s.pointsF32 {
-		out[i] = float64(v)
+	if len(s.pointsF32) > 0 {
+		out := make([]float64, len(s.pointsF32))
+		for i, v := range s.pointsF32 {
+			out[i] = float64(v)
+		}
+		return out
 	}
-	return out
+	return nil
 }
 
 // LoadStore memory-maps refs.bin (RNF1 float32 or RNF2 float64).
@@ -60,6 +72,24 @@ func LoadStore(path string) (*Store, error) {
 		return nil, fmt.Errorf("invalid header n=%d dim=%d", n, dim)
 	}
 	switch magic {
+	case storeMagicV3:
+		if ver != 3 {
+			return nil, fmt.Errorf("unsupported RNF3 version %d", ver)
+		}
+		vecBytes := n * dim * 2
+		offVec := 16
+		offLab := offVec + vecBytes
+		if len(data) < offLab+n {
+			return nil, fmt.Errorf("truncated file: need %d bytes", offLab+n)
+		}
+		pointsI16 := bytesToInt16Slice(data[offVec:offLab])
+		return &Store{
+			data:      data,
+			n:         n,
+			dim:       dim,
+			pointsI16: pointsI16,
+			labels:    data[offLab : offLab+n],
+		}, nil
 	case storeMagicV2:
 		if ver != 2 {
 			return nil, fmt.Errorf("unsupported RNF2 version %d", ver)
@@ -123,6 +153,16 @@ func mmapRead(path string) ([]byte, error) {
 		return nil, err
 	}
 	return data, nil
+}
+
+func bytesToInt16Slice(b []byte) []int16 {
+	if len(b) == 0 {
+		return nil
+	}
+	if len(b)%2 != 0 {
+		panic("unaligned int16 buffer")
+	}
+	return unsafe.Slice((*int16)(unsafe.Pointer(&b[0])), len(b)/2)
 }
 
 func bytesToFloat32Slice(b []byte) []float32 {

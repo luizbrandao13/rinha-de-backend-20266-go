@@ -52,7 +52,7 @@ func TestStoreRoundtripSmall(t *testing.T) {
 	}
 	got := st.Points()
 	for i := range points {
-		if math.Abs(got[i]-points[i]) > 1e-5 {
+		if math.Abs(got[i]-points[i]) > 0.002 {
 			t.Fatalf("points[%d]=%v want %v", i, got[i], points[i])
 		}
 	}
@@ -65,17 +65,18 @@ func writeStoreFixture(path string, n, dim int, points []float64, labels []byte)
 	}
 	defer f.Close()
 	hdr := make([]byte, 16)
-	copy(hdr[0:4], []byte(storeMagicV1))
-	binary.LittleEndian.PutUint32(hdr[4:8], 1)
+	copy(hdr[0:4], []byte(storeMagicV3))
+	binary.LittleEndian.PutUint32(hdr[4:8], 3)
 	binary.LittleEndian.PutUint32(hdr[8:12], uint32(n))
 	binary.LittleEndian.PutUint32(hdr[12:16], uint32(dim))
 	if _, err := f.Write(hdr); err != nil {
 		return err
 	}
-	buf := make([]byte, dim*4)
+	buf := make([]byte, dim*2)
 	for i := 0; i < n; i++ {
 		for j := 0; j < dim; j++ {
-			binary.LittleEndian.PutUint32(buf[j*4:(j+1)*4], math.Float32bits(float32(points[i*dim+j])))
+			qv := QuantizeDim(points[i*dim+j])
+			binary.LittleEndian.PutUint16(buf[j*2:(j+1)*2], uint16(qv))
 		}
 		if _, err := f.Write(buf); err != nil {
 			return err

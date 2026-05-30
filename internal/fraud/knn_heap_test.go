@@ -1,57 +1,52 @@
 package fraud
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
-func TestDistSqMatchesKnownNeighbor(t *testing.T) {
-	st, err := LoadStore("/tmp/refs.bin")
+func TestMmapForestMatchesBruteOnSample(t *testing.T) {
+	path := os.Getenv("REFS_BIN")
+	treePath := os.Getenv("TREE_BIN")
+	if path == "" || treePath == "" {
+		t.Skip("set REFS_BIN and TREE_BIN")
+	}
+	st, err := LoadStore(path)
 	if err != nil {
-		t.Skip(err)
+		t.Fatal(err)
 	}
-	q := [14]float64{0.0442, 0.0833, 0.05, 0.6957, 0.6667, 1, 0.0184, 0.0339, 0.05, 0, 1, 0, 0.15, 0.0303}
-	points := st.Points()
-	dim := st.Dim()
-	got := distSq14(&q, points, dim, 811572)
-	want := 0.25374107
-	if got < want-1e-6 || got > want+1e-6 {
-		t.Fatalf("distSq14=%v want ~%v", got, want)
-	}
-}
-
-func TestHeapKNNMatchesInsertion(t *testing.T) {
-	st, err := LoadStore("/tmp/refs.bin")
+	forest, err := LoadTreeForestMmap(treePath)
 	if err != nil {
-		t.Skip(err)
+		t.Fatal(err)
 	}
-	q := [14]float64{0.0442, 0.0833, 0.05, 0.6957, 0.6667, 1, 0.0184, 0.0339, 0.05, 0, 1, 0, 0.15, 0.0303}
-	points := st.Points()
-	dim := st.Dim()
-	n := st.N()
-
-	var h neighborHeap
-	for idx := 0; idx < n; idx++ {
-		d2 := distSq14(&q, points, dim, idx)
-		h.push(d2, int32(idx))
+	n, err := LoadNorm("../../resources/normalization.json")
+	if err != nil {
+		t.Fatal(err)
 	}
-	heapIdx := h.snapshot()
+	mcc, err := LoadMCCTable("../../resources/mcc_risk.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nf := NewNormFast(n)
 
-	// C-style insertion kNN
-	dists := [5]float64{1e30, 1e30, 1e30, 1e30, 1e30}
-	idxs := [5]int32{-1, -1, -1, -1, -1}
-	for i := 0; i < n; i++ {
-		d := distSq14(&q, points, dim, i)
-		for j := 0; j < 5; j++ {
-			if d < dists[j] {
-				for k := 4; k > j; k-- {
-					dists[k] = dists[k-1]
-					idxs[k] = idxs[k-1]
-				}
-				dists[j] = d
-				idxs[j] = int32(i)
-				break
-			}
+	limit := 50
+	if st.N() < limit {
+		limit = st.N()
+	}
+	for i := 0; i < limit; i++ {
+		// synthetic query from row i with small perturbation
+		var q [14]int16
+		base := i * st.dim
+		for j := 0; j < st.dim; j++ {
+			q[j] = st.pointsI16[base+j]
 		}
-	}
-	if !sameNeighborSet(heapIdx, idxs) {
-		t.Fatalf("heap=%v insertion=%v", heapIdx, idxs)
+		q[0]++
+		got := forest.SearchK(&q, st.pointsI16, st.dim)
+		want := bruteI16(&q, st)
+		if !sameNeighborSet(got, want) {
+			t.Fatalf("trial %d mmap=%v brute=%v", i, got, want)
+		}
+		_ = nf
+		_ = mcc
 	}
 }

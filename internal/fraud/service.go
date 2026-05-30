@@ -1,16 +1,19 @@
 package fraud
 
-import "os"
+import (
+	"errors"
+	"os"
+)
 
-// Engine performs partitioned kNN (k=5) over the reference store.
+// Engine performs partitioned kNN (k=5) over mmap'd references and VP index.
 type Engine struct {
-	store *Store
-	trees [4]*vpNode
-	norm  NormFast
-	mcc   *MCCTable
+	store  *Store
+	forest *MmapForest
+	norm   NormFast
+	mcc    *MCCTable
 }
 
-// NewEngine loads references and a VP-tree forest (VPT2) or legacy single tree.
+// NewEngine loads mmap'd references and VP-tree forest.
 func NewEngine(refPath, treePath, normPath, mccPath string) (*Engine, error) {
 	st, err := LoadStore(refPath)
 	if err != nil {
@@ -24,39 +27,33 @@ func NewEngine(refPath, treePath, normPath, mccPath string) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	var trees [4]*vpNode
+	var forest *MmapForest
 	if treePath != "" {
 		if _, err := os.Stat(treePath); err == nil {
-			trees, err = LoadTreeForest(treePath)
+			forest, err = LoadTreeForestMmap(treePath)
 			if err != nil {
 				return nil, err
 			}
 		}
 	}
-	if trees[0] == nil && trees[1] == nil && trees[2] == nil && trees[3] == nil {
-		forest := BuildPartitionedForest(st.Points(), st.N(), st.Dim(), defaultLeafCap)
-		trees = forest
+	if forest == nil {
+		return nil, errors.New("tree.bin required")
 	}
 	return &Engine{
-		store: st,
-		trees: trees,
-		norm:  NewNormFast(n),
-		mcc:   mcc,
+		store:  st,
+		forest: forest,
+		norm:   NewNormFast(n),
+		mcc:    mcc,
 	}, nil
 }
 
-// Evaluate runs vectorization + exact kNN (k=5) over all reference partitions.
+// Evaluate runs vectorization + exact kNN (k=5).
 func (e *Engine) Evaluate(req *Request) (approved bool, fraudScore float64, fraudNeighbors int, err error) {
-	var q [14]float64
-	if err := VectorizeQuery(req, e.norm, e.mcc, &q); err != nil {
+	var q [14]int16
+	if err := VectorizeQueryI16(req, e.norm, e.mcc, &q); err != nil {
 		return false, 0, 0, err
 	}
-	var neighbors [5]int32
-	if len(e.store.pointsF32) > 0 {
-		neighbors = SearchForestKF32(e.trees, &q, e.store.pointsF32, e.store.dim)
-	} else {
-		neighbors = SearchForestK(e.trees, &q, e.store.pointsF64, e.store.dim)
-	}
+	neighbors := e.forest.SearchK(&q, e.store.pointsI16, e.store.dim)
 	fc := NeighborFraudCount(e.store.labels, neighbors)
 	fs := FraudScoreFromNeighbors(fc)
 	return Approved(fs), fs, fc, nil

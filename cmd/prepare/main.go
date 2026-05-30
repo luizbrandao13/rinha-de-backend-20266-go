@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"strings"
 	"time"
@@ -15,7 +14,7 @@ import (
 	"github.com/luizbrandao13/rinha-de-backend-20266-go/internal/fraud"
 )
 
-const magic = "RNF1"
+const magic = "RNF3"
 
 type refRec struct {
 	Vector []float64 `json:"vector"`
@@ -86,14 +85,14 @@ func convert(inPath, outPath string) error {
 
 	hdr := make([]byte, 16)
 	copy(hdr[0:4], []byte(magic))
-	binary.LittleEndian.PutUint32(hdr[4:8], 1) // version
+	binary.LittleEndian.PutUint32(hdr[4:8], 3) // version
 	binary.LittleEndian.PutUint32(hdr[8:12], 0)
 	binary.LittleEndian.PutUint32(hdr[12:16], 14)
 	if _, err := out.Write(hdr); err != nil {
 		return err
 	}
 
-	bufF := make([]byte, 14*4)
+	bufF := make([]byte, 14*2)
 	labels := make([]byte, 0, 1<<20)
 	var n uint32
 	for dec.More() {
@@ -105,8 +104,8 @@ func convert(inPath, outPath string) error {
 			return fmt.Errorf("vector len %d at row %d", len(rec.Vector), n)
 		}
 		for i, v := range rec.Vector {
-			fv := float32(fraud.Round4(v))
-			binary.LittleEndian.PutUint32(bufF[i*4:(i+1)*4], math.Float32bits(fv))
+			qv := fraud.QuantizeDim(v)
+			binary.LittleEndian.PutUint16(bufF[i*2:(i+1)*2], uint16(qv))
 		}
 		if _, err := out.Write(bufF); err != nil {
 			return err

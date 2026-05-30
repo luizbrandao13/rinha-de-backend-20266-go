@@ -52,6 +52,22 @@ func distSq14F32(q *[14]float64, points []float32, dim, row int) float64 {
 	return s
 }
 
+// distSq14I16 computes squared distance (quantized int16 refs + query).
+func distSq14I16(q *[14]int16, points []int16, dim, row int) float64 {
+	base := row * dim
+	p := points[base : base+dim]
+	var s float64
+	for i := 0; i < dim; i++ {
+		d := DequantDim(q[i]) - DequantDim(p[i])
+		s += d * d
+	}
+	return s
+}
+
+func distSq14StoreI16(q *[14]int16, st *Store, row int) float64 {
+	return distSq14I16(q, st.pointsI16, st.dim, row)
+}
+
 func distSq14Store(q *[14]float64, st *Store, row int) float64 {
 	if len(st.pointsF32) > 0 {
 		return distSq14F32(q, st.pointsF32, st.dim, row)
