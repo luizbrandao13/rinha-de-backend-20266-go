@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/luizbrandao13/rinha-de-backend-20266-go/internal/fraud"
@@ -12,7 +13,13 @@ import (
 )
 
 func main() {
-	runtime.GOMAXPROCS(runtime.NumCPU())
+	if v := os.Getenv("GOMAXPROCS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			runtime.GOMAXPROCS(n)
+		}
+	} else {
+		runtime.GOMAXPROCS(1)
+	}
 
 	refPath := getenv("REFS_PATH", "/data/refs.bin")
 	treePath := getenv("TREE_PATH", "/data/tree.bin")
@@ -29,10 +36,13 @@ func main() {
 	log.Printf("index ready in %s", time.Since(t0))
 
 	srv := &fasthttp.Server{
-		Handler:            makeHandler(eng),
-		ReadBufferSize:     4096,
-		WriteBufferSize:    256,
-		MaxRequestBodySize: 256 << 10,
+		Handler:                       makeHandler(eng),
+		ReadBufferSize:                4096,
+		WriteBufferSize:               256,
+		MaxRequestBodySize:            256 << 10,
+		DisableHeaderNamesNormalizing: true,
+		NoDefaultServerHeader:         true,
+		ReduceMemoryUsage:             true,
 	}
 
 	log.Printf("listening on %s", addr)

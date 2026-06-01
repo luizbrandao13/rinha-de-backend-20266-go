@@ -54,14 +54,61 @@ func distSq14F32(q *[14]float64, points []float32, dim, row int) float64 {
 
 // distSq14I16 computes squared distance (quantized int16 refs + query).
 func distSq14I16(q *[14]int16, points []int16, dim, row int) float64 {
+	var qf [14]float64
+	for i := 0; i < dim; i++ {
+		qf[i] = DequantDim(q[i])
+	}
+	return distSq14QF(&qf, points, dim, row)
+}
+
+// distSq14QF computes squared distance with a pre-dequantized query vector.
+func distSq14QF(q *[14]float64, points []int16, dim, row int) float64 {
 	base := row * dim
 	p := points[base : base+dim]
 	var s float64
 	for i := 0; i < dim; i++ {
-		d := DequantDim(q[i]) - DequantDim(p[i])
+		pi := p[i]
+		var pf float64
+		if pi == QuantMissing {
+			pf = -1
+		} else {
+			pf = float64(pi) / quantScale
+		}
+		d := q[i] - pf
 		s += d * d
 	}
 	return s
+}
+
+// distSqRowsI16 computes squared distance between two int16 reference rows.
+func distSqRowsI16(points []int16, dim, i, j int) float64 {
+	bi, bj := i*dim, j*dim
+	var s float64
+	for k := 0; k < dim; k++ {
+		pi := points[bi+k]
+		pj := points[bj+k]
+		var fi, fj float64
+		if pi == QuantMissing {
+			fi = -1
+		} else {
+			fi = float64(pi) / quantScale
+		}
+		if pj == QuantMissing {
+			fj = -1
+		} else {
+			fj = float64(pj) / quantScale
+		}
+		d := fi - fj
+		s += d * d
+	}
+	return s
+}
+
+// dequantQuery fills qf from a quantized query vector.
+func dequantQuery(q *[14]int16, qf *[14]float64, dim int) {
+	for i := 0; i < dim; i++ {
+		qf[i] = DequantDim(q[i])
+	}
 }
 
 func distSq14StoreI16(q *[14]int16, st *Store, row int) float64 {

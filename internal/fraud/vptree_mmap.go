@@ -96,22 +96,38 @@ func nodeSize(data []byte, off int) (int, error) {
 
 // SearchK runs exact k=5 over all partitions.
 func (f *MmapForest) SearchK(q *[14]int16, points []int16, dim int) [5]int32 {
+	var qf [14]float64
+	dequantQuery(q, &qf, dim)
+	return f.SearchKQF(&qf, points, dim)
+}
+
+// SearchKQF runs exact k=5 with a pre-dequantized query vector.
+func (f *MmapForest) SearchKQF(q *[14]float64, points []int16, dim int) [5]int32 {
 	var h neighborHeap
-	seen := make(map[int]struct{}, 4)
+	var seen [4]int
+	nseen := 0
 	for _, root := range f.roots {
 		if root < 0 {
 			continue
 		}
-		if _, ok := seen[root]; ok {
+		dup := false
+		for j := 0; j < nseen; j++ {
+			if seen[j] == root {
+				dup = true
+				break
+			}
+		}
+		if dup {
 			continue
 		}
-		seen[root] = struct{}{}
+		seen[nseen] = root
+		nseen++
 		searchMmapRec(f.data, root, q, points, dim, &h)
 	}
 	return h.snapshot()
 }
 
-func searchMmapRec(data []byte, off int, q *[14]int16, points []int16, dim int, h *neighborHeap) {
+func searchMmapRec(data []byte, off int, q *[14]float64, points []int16, dim int, h *neighborHeap) {
 	if off >= len(data) {
 		return
 	}
@@ -121,7 +137,7 @@ func searchMmapRec(data []byte, off int, q *[14]int16, points []int16, dim int, 
 		base := off + 5
 		for i := uint32(0); i < c; i++ {
 			idx := binary.LittleEndian.Uint32(data[base+int(i)*4:])
-			d2 := distSq14I16(q, points, dim, int(idx))
+			d2 := distSq14QF(q, points, dim, int(idx))
 			h.push(d2, int32(idx))
 		}
 	case 0:
@@ -134,7 +150,7 @@ func searchMmapRec(data []byte, off int, q *[14]int16, points []int16, dim int, 
 		}
 		right := left + ls
 
-		d0 := math.Sqrt(distSq14I16(q, points, dim, int(vantage)))
+		d0 := math.Sqrt(distSq14QF(q, points, dim, int(vantage)))
 		h.push(d0*d0, int32(vantage))
 
 		if d0 < mu {
