@@ -55,7 +55,8 @@ func (e *Engine) Evaluate(req *Request) (approved bool, fraudScore float64, frau
 	}
 	var qf [14]float64
 	dequantQuery(&q, &qf, e.store.dim)
-	neighbors := e.forest.SearchKQF(&qf, e.store.pointsI16, e.store.dim)
+	part := partitionFromRequest(req)
+	neighbors := e.forest.SearchKQFPartition(&qf, e.store.pointsI16, e.store.dim, part)
 	fc := NeighborFraudCount(e.store.labels, neighbors)
 	fs := FraudScoreFromNeighbors(fc)
 	return Approved(fs), fs, fc, nil

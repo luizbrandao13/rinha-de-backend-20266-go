@@ -43,7 +43,7 @@ func main() {
 	}
 	fmt.Fprintf(os.Stderr, "building partitioned VP-trees n=%d...\n", st.N())
 	t0 := time.Now()
-	forest := fraud.BuildPartitionedForestI16(st.PointsI16(), st.N(), st.Dim(), 128)
+	forest := fraud.BuildPartitionedForestI16(st.PointsI16(), st.N(), st.Dim(), 24)
 	if err := fraud.WriteTreeForest(*treePath, forest); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
