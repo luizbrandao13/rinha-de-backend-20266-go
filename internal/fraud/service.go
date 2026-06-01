@@ -53,7 +53,9 @@ func (e *Engine) Evaluate(req *Request) (approved bool, fraudScore float64, frau
 	if err := VectorizeQueryI16(req, e.norm, e.mcc, &q); err != nil {
 		return false, 0, 0, err
 	}
-	neighbors := e.forest.SearchK(&q, e.store.pointsI16, e.store.dim)
+	var qf [14]float64
+	dequantQuery(&q, &qf, e.store.dim)
+	neighbors := e.forest.SearchKQF(&qf, e.store.pointsI16, e.store.dim)
 	fc := NeighborFraudCount(e.store.labels, neighbors)
 	fs := FraudScoreFromNeighbors(fc)
 	return Approved(fs), fs, fc, nil

@@ -87,6 +87,79 @@ func BuildPartitionedForest(points []float64, n, dim, leafCap int) [4]*vpNode {
 	return forest
 }
 
+// BuildPartitionedForestI16 builds VP-trees over RNF3 int16 refs (same metric as query path).
+func BuildPartitionedForestI16(points []int16, n, dim, leafCap int) [4]*vpNode {
+	if leafCap <= 0 {
+		leafCap = defaultLeafCap
+	}
+	var parts [4][]uint32
+	for i := 0; i < n; i++ {
+		p := partitionFromI16(points, dim, i)
+		parts[p] = append(parts[p], uint32(i))
+	}
+	var forest [4]*vpNode
+	for p := 0; p < 4; p++ {
+		if len(parts[p]) == 0 {
+			continue
+		}
+		forest[p] = buildIndexListI16(parts[p], points, dim, leafCap)
+	}
+	return forest
+}
+
+func buildIndexListI16(indices []uint32, points []int16, dim, leafCap int) *vpNode {
+	cp := append([]uint32(nil), indices...)
+	rng := rand.New(rand.NewSource(42))
+	rng.Shuffle(len(cp), func(i, j int) { cp[i], cp[j] = cp[j], cp[i] })
+	tmp := make([]float64, len(cp))
+	aux := make([]float64, len(cp))
+	return buildRecRangeI16(cp, 0, len(cp), points, dim, leafCap, tmp, aux, rng)
+}
+
+func buildRecRangeI16(buf []uint32, lo, hi int, points []int16, dim, leafCap int, tmp, aux []float64, rng *rand.Rand) *vpNode {
+	m := hi - lo
+	if m <= leafCap {
+		cp := make([]uint32, m)
+		copy(cp, buf[lo:hi])
+		return &vpNode{leaf: cp}
+	}
+	if m > 1 {
+		j := lo + rng.Intn(m)
+		buf[lo], buf[j] = buf[j], buf[lo]
+	}
+	vantage := buf[lo]
+	if m == 1 {
+		return &vpNode{leaf: []uint32{vantage}}
+	}
+
+	restLen := m - 1
+	seg := buf[lo+1 : hi]
+	for i := 0; i < restLen; i++ {
+		d := math.Sqrt(distSqRowsI16(points, dim, int(vantage), int(seg[i])))
+		if math.IsNaN(d) || math.IsInf(d, 0) {
+			d = 1e12
+		}
+		tmp[i] = d
+	}
+	copy(aux[:restLen], tmp[:restLen])
+	sort.Float64s(aux[:restLen])
+	mu := aux[restLen/2]
+
+	split := partitionByMu(tmp[:restLen], seg, mu)
+	if split == 0 || split == restLen {
+		mid := 1 + restLen/2
+		node := &vpNode{vantage: vantage, mu: mu}
+		node.left = buildRecRangeI16(buf, lo+1, lo+mid, points, dim, leafCap, tmp, aux, rng)
+		node.right = buildRecRangeI16(buf, lo+mid, hi, points, dim, leafCap, tmp, aux, rng)
+		return node
+	}
+
+	node := &vpNode{vantage: vantage, mu: mu}
+	node.left = buildRecRangeI16(buf, lo+1, lo+1+split, points, dim, leafCap, tmp, aux, rng)
+	node.right = buildRecRangeI16(buf, lo+1+split, hi, points, dim, leafCap, tmp, aux, rng)
+	return node
+}
+
 func buildIndexList(indices []uint32, points []float64, dim, leafCap int) *vpNode {
 	cp := append([]uint32(nil), indices...)
 	rng := rand.New(rand.NewSource(42))

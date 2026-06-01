@@ -30,3 +30,10 @@ func partitionFromVector(points []float64, dim, row int) int {
 	hasLast := points[base+5] != -1
 	return partitionTag(unknown, hasLast)
 }
+
+func partitionFromI16(points []int16, dim, row int) int {
+	base := row * dim
+	unknown := DequantDim(points[base+11]) >= 0.5
+	hasLast := points[base+5] != QuantMissing
+	return partitionTag(unknown, hasLast)
+}
