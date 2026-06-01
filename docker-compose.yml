@@ -6,7 +6,7 @@ x-api: &api
     PORT: "8080"
     LISTEN_ADDR: ":8080"
     GOMAXPROCS: "1"
-    GOGC: "off"
+    GOGC: "50"
     GOMEMLIMIT: "135MiB"
   expose:
     - "8080"
